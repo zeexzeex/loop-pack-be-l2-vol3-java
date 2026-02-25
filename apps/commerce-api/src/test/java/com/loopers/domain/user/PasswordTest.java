@@ -241,4 +241,41 @@ class PasswordTest {
             assertThat(result).isFalse();
         }
     }
+
+    @DisplayName("값 객체 동등성")
+    @Nested
+    class EqualsAndHashCode {
+
+        @DisplayName("동일한 raw 비밀번호로 생성한 두 인스턴스는 equals가 true이다.")
+        @Test
+        void equals_withSameValue_shouldReturnTrue() {
+            BirthDate birthDate = new BirthDate("1990-01-15");
+            Password a = Password.of("SecurePass1!", birthDate);
+            Password b = Password.of("SecurePass1!", birthDate);
+
+            assertThat(a).isEqualTo(b);
+            assertThat(a.hashCode()).isEqualTo(b.hashCode());
+        }
+
+        @DisplayName("다른 raw 비밀번호로 생성한 두 인스턴스는 equals가 false이다.")
+        @Test
+        void equals_withDifferentValue_shouldReturnFalse() {
+            BirthDate birthDate = new BirthDate("1990-01-15");
+            Password a = Password.of("SecurePass1!", birthDate);
+            Password b = Password.of("OtherPass12!", birthDate);
+
+            assertThat(a).isNotEqualTo(b);
+            assertThat(a.hashCode()).isNotEqualTo(b.hashCode());
+        }
+
+        @DisplayName("null 또는 다른 타입과는 equals가 false이다.")
+        @Test
+        void equals_withNullOrOtherType_shouldReturnFalse() {
+            BirthDate birthDate = new BirthDate("1990-01-15");
+            Password p = Password.of("SecurePass1!", birthDate);
+
+            assertThat(p).isNotEqualTo(null);
+            assertThat(p).isNotEqualTo("SecurePass1!");
+        }
+    }
 }
