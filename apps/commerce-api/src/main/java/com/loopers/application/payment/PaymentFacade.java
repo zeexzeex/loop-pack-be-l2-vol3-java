@@ -118,6 +118,8 @@ public class PaymentFacade {
                     long orderAmountWon = order.getFinalAmount().setScale(0, RoundingMode.HALF_UP).longValue();
                     if (param.amount() != orderAmountWon) {
                         log.warn("콜백 금액 불일치 orderId={} pgAmount={} orderAmount={}", param.orderId(), param.amount(), orderAmountWon);
+                        payment.markFailed();
+                        paymentRepository.save(payment);
                         return;
                     }
                 }
@@ -170,6 +172,9 @@ public class PaymentFacade {
         } else if (Boolean.FALSE.equals(pg.success())) {
             facade.handleCallback(new PaymentCallbackParam(
                     orderId, false, pg.paymentId(), pg.failureReason(), pg.amount()));
+        } else {
+            log.warn("PG 주문별 조회 success 값 비정상(null) orderId={}, PENDING을 TIMEOUT 처리", orderId);
+            paymentFacadeSelf.getObject().timeoutPendingPaymentForOrder(orderId);
         }
     }
 

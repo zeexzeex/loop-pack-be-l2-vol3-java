@@ -22,7 +22,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,7 +37,6 @@ import static org.mockito.Mockito.when;
  */
 @SpringBootTest
 @Import(MySqlTestContainersConfig.class)
-@TestPropertySource(properties = "payment.recovery.pending-min-age=0s")
 class PaymentFacadeStaleRecoveryIntegrationTest {
 
     private static final long USER_ID = 1L;

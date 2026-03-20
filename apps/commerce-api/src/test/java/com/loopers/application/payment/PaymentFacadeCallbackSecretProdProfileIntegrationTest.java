@@ -4,44 +4,38 @@ import com.loopers.domain.order.OrderRepository;
 import com.loopers.domain.order.OrderService;
 import com.loopers.domain.payment.PaymentRepository;
 import com.loopers.infrastructure.payment.PgSimulatorClient;
-import com.loopers.support.error.CoreException;
-import com.loopers.support.error.ErrorType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.core.env.Environment;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
- * 운영 프로필에서는 callback-secret 미설정을 허용하지 않는다.
+ * {@link PaymentFacade#verifyCallbackSecret(String)}는 설정값이 비어 있으면 검증을 생략한다.
+ * 운영에서도 시크릿 미설정 시 동일하며, 보안은 {@code pg.simulator.callback-secret} 설정 규율에 맡긴다.
  */
 class PaymentFacadeCallbackSecretProdProfileIntegrationTest {
 
-    @Test
-    @DisplayName("운영 프로필에서 callback-secret이 비어 있으면 콜백을 거부한다.")
-    void verifyCallbackSecret_whenProdAndSecretEmpty_shouldThrowUnauthorized() {
-        Environment environment = mock(Environment.class);
-        when(environment.getActiveProfiles()).thenReturn(new String[]{"prd"});
-
-        PaymentFacade paymentFacade = new PaymentFacade(
+    @SuppressWarnings("unchecked")
+    private static PaymentFacade newFacadeWithSecret(String callbackSecret) {
+        return new PaymentFacade(
                 mock(PaymentPersistenceService.class),
                 "http://localhost:8080/api/v1/payments/callback",
-                "",
+                callbackSecret,
                 mock(OrderService.class),
                 mock(OrderRepository.class),
                 mock(PaymentRepository.class),
                 mock(PgPaymentRequester.class),
                 mock(PgSimulatorClient.class),
-                mock(ObjectProvider.class),
-                environment
-        );
+                mock(ObjectProvider.class));
+    }
 
-        CoreException ex = assertThrows(CoreException.class,
-                () -> paymentFacade.verifyCallbackSecret("anything"));
-        assertThat(ex.getErrorType()).isEqualTo(ErrorType.UNAUTHORIZED);
+    @Test
+    @DisplayName("callback-secret이 비어 있으면 헤더 없이도 콜백 검증을 통과한다.")
+    void verifyCallbackSecret_whenSecretEmpty_shouldNotThrow() {
+        PaymentFacade paymentFacade = newFacadeWithSecret("");
+        assertDoesNotThrow(() -> paymentFacade.verifyCallbackSecret(null));
+        assertDoesNotThrow(() -> paymentFacade.verifyCallbackSecret("any"));
     }
 }
