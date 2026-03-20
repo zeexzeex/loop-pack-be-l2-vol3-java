@@ -144,9 +144,9 @@ class PaymentFacadeCallbackIntegrationTest {
             assertThat(pay.getStatus()).isEqualTo(PaymentStatus.FAILED);
         }
 
-        /** 위변조·불일치 방지: 금액 틀리면 완료하지 않고 PENDING 유지. */
+        /** 위변조·불일치 방지: 금액 틀리면 완료하지 않고 FAILED로 종료. */
         @Test
-        @DisplayName("콜백 금액이 주문과 다르면 completePayment를 하지 않고 결제는 PENDING이다.")
+        @DisplayName("콜백 금액이 주문과 다르면 completePayment를 하지 않고 결제는 FAILED다.")
         void handleCallback_whenAmountMismatch_shouldNotCompletePayment() {
             // given
             OrderAndProduct ctx = createOrderedOrderWithStock(10);
@@ -162,7 +162,7 @@ class PaymentFacadeCallbackIntegrationTest {
             assertThat(after.getStatus()).isEqualTo(OrderStatus.ORDERED);
             assertThat(productService.findById(ctx.productId()).orElseThrow().getStockQuantity()).isEqualTo(10);
             var pay = paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(ctx.order().getId()).orElseThrow();
-            assertThat(pay.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(pay.getStatus()).isEqualTo(PaymentStatus.FAILED);
         }
 
         /** 동일 성공 콜백 재전송: 주문·재고 이중 반영 없음(멱등). */

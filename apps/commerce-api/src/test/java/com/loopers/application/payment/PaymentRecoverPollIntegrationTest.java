@@ -156,6 +156,25 @@ class PaymentRecoverPollIntegrationTest {
                 .isEqualTo(PaymentStatus.TIMEOUT);
     }
 
+    /** PG success 필드가 비정상(null)인 경우도 무기한 PENDING을 막기 위해 TIMEOUT으로 수렴시킨다. */
+    @Test
+    @DisplayName("PG 조회의 success가 null이면 PENDING을 TIMEOUT으로 바꾼다.")
+    void recoverOrPoll_whenPgSuccessIsNull_shouldMarkTimeout() {
+        // given
+        OrderModel order = createOrderedOrder();
+        persistenceService.savePendingAndGetRequestParam(USER_ID, order.getId(), "SAMSUNG", "1", CB);
+        when(pgSimulatorClient.getPaymentsByOrderId(order.getId()))
+                .thenReturn(new PgPaymentStatusResponse("pg-poll-unknown", order.getId(), null, "UNKNOWN", null, null));
+
+        // when
+        paymentFacade.recoverPendingFromPgSimulator(order.getId());
+
+        // then
+        assertThat(orderService.findById(USER_ID, order.getId()).orElseThrow().getStatus()).isEqualTo(OrderStatus.ORDERED);
+        assertThat(paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.TIMEOUT);
+    }
+
     /** 복구 호출 입력 검증. */
     @Test
     @DisplayName("orderId가 null이면 BAD_REQUEST다.")

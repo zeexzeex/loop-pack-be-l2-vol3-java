@@ -35,6 +35,7 @@ import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static com.loopers.interfaces.api.ApiResponse.Metadata.Result;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,7 +121,7 @@ class AdminPaymentV1ApiE2ETest {
         OrderModel order = createOrderedOrder();
         persistenceService.savePendingAndGetRequestParam(USER_ID, order.getId(), "SAMSUNG", "1", CB);
 
-        ResponseEntity<ApiResponse<List<AdminPaymentV1Dto.PendingPaymentResponse>>> res = testRestTemplate.exchange(
+        ResponseEntity<ApiResponse<List<Map<String, Object>>>> res = testRestTemplate.exchange(
                 "/api-admin/v1/payments/pending",
                 HttpMethod.GET,
                 new HttpEntity<>(adminHeaders()),
@@ -129,7 +130,7 @@ class AdminPaymentV1ApiE2ETest {
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody()).isNotNull();
         assertThat(res.getBody().data()).isNotEmpty();
-        assertThat(res.getBody().data().get(0).orderId()).isEqualTo(order.getId());
+        assertThat(res.getBody().data().get(0).get("orderId")).isEqualTo(order.getId().intValue());
         assertThat(res.getBody().meta().result()).isEqualTo(Result.SUCCESS);
     }
 

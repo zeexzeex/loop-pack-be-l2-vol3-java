@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link PaymentFacade#recoverStalePendingPayments()} — pending-min-age 이후 건만 PG 조회 대상.
+ * {@link PaymentFacade#recoverPendingFromPgSimulator(Long)} 기반 복구 시나리오 검증.
  */
 @SpringBootTest
 @Import(MySqlTestContainersConfig.class)
@@ -78,15 +78,15 @@ class PaymentFacadeStaleRecoveryIntegrationTest {
     }
 
     @Test
-    @DisplayName("pending-min-age(0s) 기준으로 stale 복구 시 PG SUCCESS면 주문이 PAID가 된다.")
-    void recoverStale_whenPgSuccess_shouldCompletePayment() {
+    @DisplayName("PENDING 복구 시 PG SUCCESS면 주문이 PAID가 된다.")
+    void recoverPending_whenPgSuccess_shouldCompletePayment() {
         OrderModel order = createOrderedOrder();
         persistenceService.savePendingAndGetRequestParam(USER_ID, order.getId(), "SAMSUNG", "1", CB);
         long amountWon = order.getFinalAmount().setScale(0, java.math.RoundingMode.HALF_UP).longValue();
         when(pgSimulatorClient.getPaymentsByOrderId(order.getId()))
                 .thenReturn(new PgPaymentStatusResponse("pg-stale-1", order.getId(), true, "OK", amountWon, null));
 
-        paymentFacade.recoverStalePendingPayments();
+        paymentFacade.recoverPendingFromPgSimulator(order.getId());
 
         assertThat(orderService.findById(USER_ID, order.getId()).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(order.getId()).orElseThrow().getStatus())
@@ -94,11 +94,11 @@ class PaymentFacadeStaleRecoveryIntegrationTest {
     }
 
     @Test
-    @DisplayName("PENDING이 없으면 stale 복구가 PG를 호출하지 않는다.")
-    void recoverStale_whenNoPending_shouldNotCallPg() {
+    @DisplayName("PENDING이 없으면 복구가 PG를 호출하지 않는다.")
+    void recoverPending_whenNoPending_shouldNotCallPg() {
         OrderModel order = createOrderedOrder();
 
-        paymentFacade.recoverStalePendingPayments();
+        paymentFacade.recoverPendingFromPgSimulator(order.getId());
 
         verify(pgSimulatorClient, never()).getPaymentsByOrderId(anyLong());
     }
