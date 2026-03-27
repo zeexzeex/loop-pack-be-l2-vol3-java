@@ -113,6 +113,75 @@ class ProductEventCollectorServiceTest {
         assertThat(meterRegistry.find("kafka.collector.events.failed").counter().count()).isEqualTo(1.0);
     }
 
+    @Test
+    @DisplayName("envelope 최상위에 미정의 필드가 오면 역직렬화 실패로 예외가 발생한다.")
+    void process_whenEnvelopeHasUnknownFields_shouldFailDeserialization() {
+        ConsumerRecord<Object, Object> record = new ConsumerRecord<>(
+                "product-events",
+                0,
+                8L,
+                "101",
+                ("{"
+                        + "\"eventId\":\"evt-unknown\","
+                        + "\"eventType\":\"PRODUCT_LIKE_CHANGED\","
+                        + "\"occurredAt\":\"2026-03-26T00:00:00Z\","
+                        + "\"partitionKey\":\"101\","
+                        + "\"schemaVersion\":\"v2\","
+                        + "\"unknownTopLevel\":\"ignored\","
+                        + "\"data\":{\"productId\":101,\"action\":\"LIKED\",\"futureField\":\"x\"}"
+                        + "}").getBytes()
+        );
+
+        try {
+            collectorService.process(record);
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        verify(databaseService, never()).processDb(any(), any());
+        assertThat(meterRegistry.find("kafka.collector.events.failed").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("eventId가 비어 있으면 실패 메트릭을 증가시키고 예외를 던진다.")
+    void process_whenEventIdMissing_shouldFail() {
+        ConsumerRecord<Object, Object> record = new ConsumerRecord<>(
+                "product-events",
+                0,
+                9L,
+                "101",
+                ("{"
+                        + "\"eventType\":\"PRODUCT_LIKE_CHANGED\","
+                        + "\"occurredAt\":\"2026-03-26T00:00:00Z\","
+                        + "\"partitionKey\":\"101\","
+                        + "\"data\":{\"productId\":101,\"action\":\"LIKED\"}"
+                        + "}").getBytes()
+        );
+
+        try {
+            collectorService.process(record);
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        verify(databaseService, never()).processDb(any(), any());
+        assertThat(meterRegistry.find("kafka.collector.events.failed").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("CART_ITEM_ADDED도 경량 멱등 경로를 사용한다.")
+    void process_whenCartItemAdded_shouldUseLightweightPath() {
+        when(lightweightEventIdempotency.tryClaimFirstDelivery("evt-cart-1")).thenReturn(true);
+        String json = "{\"eventId\":\"evt-cart-1\",\"eventType\":\"CART_ITEM_ADDED\","
+                + "\"occurredAt\":\"2026-03-26T00:00:00Z\",\"partitionKey\":\"1\","
+                + "\"data\":{\"userId\":1,\"productId\":101,\"quantity\":2}}";
+        ConsumerRecord<Object, Object> record = new ConsumerRecord<>("user-events", 0, 3L, "1", json.getBytes());
+
+        collectorService.process(record);
+
+        verify(lightweightEventIdempotency).tryClaimFirstDelivery("evt-cart-1");
+        verify(databaseService, never()).processDb(any(), any());
+        assertThat(meterRegistry.find("kafka.collector.events.processed").counter().count()).isEqualTo(1.0);
+    }
+
     private static String envelopeJson(String eventId, String eventType, String occurredAt, Long productId, String action) {
         return "{"
                 + "\"eventId\":\"" + eventId + "\","

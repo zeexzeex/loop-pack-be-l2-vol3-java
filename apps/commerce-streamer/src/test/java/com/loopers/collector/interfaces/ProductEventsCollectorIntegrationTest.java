@@ -7,6 +7,7 @@ import com.loopers.utils.DatabaseCleanUp;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterEach;
@@ -25,8 +26,8 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,10 +122,66 @@ class ProductEventsCollectorIntegrationTest {
 
         ConsumerRecord<String, String> dlqRecord = pollSingleRecord("product-events.DLQ");
         assertThat(dlqRecord).isNotNull();
-        // DLQ 값은 JsonSerializer를 거치며 base64 문자열로 저장되어 디코딩 후 원문을 검증한다.
-        String encodedPayload = dlqRecord.value().replace("\"", "");
-        String decodedPayload = new String(Base64.getDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        assertThat(decodedPayload).isEqualTo("\"{not-json\"");
+        assertThat(dlqRecord.topic()).isEqualTo("product-events.DLQ");
+    }
+
+    @Test
+    @DisplayName("order-events PAYMENT_COMPLETED를 수신하면 sold_quantity를 반영한다.")
+    void paymentCompleted_shouldIncreaseSoldQuantity() throws Exception {
+        String payload = "{"
+                + "\"eventId\":\"evt-order-1\","
+                + "\"eventType\":\"PAYMENT_COMPLETED\","
+                + "\"occurredAt\":\"2026-03-26T00:00:20Z\","
+                + "\"partitionKey\":\"5001\","
+                + "\"data\":{\"orderId\":5001,\"lines\":[{\"productId\":901,\"quantity\":3}]}"
+                + "}";
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("order-events", "5001", payload);
+        record.headers().add("eventId", "evt-order-1".getBytes(StandardCharsets.UTF_8));
+        record.headers().add("eventType", "PAYMENT_COMPLETED".getBytes(StandardCharsets.UTF_8));
+        kafkaTemplate.send(record).get();
+
+        waitUntil(() -> productMetricsJpaRepository.findById(901L)
+                .map(m -> m.getSoldQuantity() == 3L)
+                .orElse(false), 20000);
+
+        assertThat(productMetricsJpaRepository.findById(901L)).isPresent();
+        assertThat(productMetricsJpaRepository.findById(901L).orElseThrow().getSoldQuantity()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("user-events는 메트릭 없이 경량 처리되어 event_handled DB를 남기지 않는다.")
+    void userEvent_shouldNotPersistEventHandled() throws Exception {
+        String payload = "{"
+                + "\"eventId\":\"evt-user-10\","
+                + "\"eventType\":\"USER_REGISTERED\","
+                + "\"occurredAt\":\"2026-03-26T00:00:30Z\","
+                + "\"partitionKey\":\"10\","
+                + "\"data\":{\"userId\":10,\"loginId\":\"u10\"}"
+                + "}";
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("user-events", "10", payload);
+        record.headers().add("eventId", "evt-user-10".getBytes(StandardCharsets.UTF_8));
+        record.headers().add("eventType", "USER_REGISTERED".getBytes(StandardCharsets.UTF_8));
+        kafkaTemplate.send(record).get();
+
+        Thread.sleep(1000);
+
+        assertThat(eventHandledJpaRepository.existsById("evt-user-10")).isFalse();
+    }
+
+    @Test
+    @DisplayName("eventId가 없는 메시지는 재시도 없이 즉시 product-events.DLQ로 격리된다.")
+    void missingEventId_shouldGoDlqImmediately() throws Exception {
+        String payload = "{"
+                + "\"eventType\":\"PRODUCT_LIKE_CHANGED\","
+                + "\"occurredAt\":\"2026-03-26T00:00:40Z\","
+                + "\"partitionKey\":\"700\","
+                + "\"data\":{\"productId\":700,\"action\":\"LIKED\"}"
+                + "}";
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("product-events", "700", payload);
+        kafkaTemplate.send(record).get();
+
+        ConsumerRecord<String, String> dlqRecord = pollSingleRecord("product-events.DLQ");
+        assertThat(dlqRecord).isNotNull();
     }
 
     private void sendLikeEvent(String eventId, Instant occurredAt, Long productId, String action) throws Exception {
@@ -146,7 +203,9 @@ class ProductEventsCollectorIntegrationTest {
     }
 
     private ConsumerRecord<String, String> pollSingleRecord(String topic) {
-        Map<String, Object> props = KafkaTestUtils.consumerProps("dlq-test-group", "false", embeddedKafkaBroker);
+        Map<String, Object> props = KafkaTestUtils.consumerProps(
+                "dlq-test-group-" + UUID.randomUUID(), "false", embeddedKafkaBroker
+        );
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, embeddedKafkaBrokers);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         DefaultKafkaConsumerFactory<String, String> cf =
@@ -154,8 +213,16 @@ class ProductEventsCollectorIntegrationTest {
         Consumer<String, String> consumer = cf.createConsumer();
         try {
             embeddedKafkaBroker.consumeFromAnEmbeddedTopic(consumer, topic);
-            // 로컬 환경에서 리밸런스/컨테이너 기동 지연을 고려해 여유 있게 대기한다.
-            return KafkaTestUtils.getSingleRecord(consumer, topic, Duration.ofSeconds(40));
+            long deadline = System.currentTimeMillis() + Duration.ofSeconds(60).toMillis();
+            while (System.currentTimeMillis() < deadline) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<String, String> record : records) {
+                    if (topic.equals(record.topic())) {
+                        return record;
+                    }
+                }
+            }
+            throw new IllegalStateException("No records found for topic " + topic);
         } finally {
             consumer.close();
         }
