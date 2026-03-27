@@ -502,6 +502,13 @@ CDC는 SKILL에 전용 절은 없으나, **중복 전달·순서(파티션 내)*
 6. **Spring Consumer**: `modules/kafka` 설정으로 **전용 토픽** 구독, envelope → `product_metrics` / `event_handled` 매핑, **멱등·순서** 규칙 구현.
 7. **모니터링**: Connect REST 상태, lag, DLQ/에러 토픽(팀 표준에 따름).
 
+**브랜치 구현 산출물 (경로 A)**:
+
+- `docker/cdc/connect-compose.yml`
+- `docker/cdc/connectors/mysql-loopers-connector.json`
+- `docker/cdc/register-connector.sh`
+- `docs/cdc/README-connect-debezium.md`
+
 ---
 
 ### 5.4 경로 B — 설계 (Connect/Debezium 없음, Spring + binlog 클라이언트)

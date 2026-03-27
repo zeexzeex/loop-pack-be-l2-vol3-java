@@ -1,0 +1,22 @@
+{
+  "name": "loopers-mysql-cdc",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "mysql-cdc",
+    "database.port": "3306",
+    "database.user": "root",
+    "database.password": "root",
+    "database.server.id": "223345",
+    "topic.prefix": "loopers-cdc",
+    "database.include.list": "loopers",
+    "table.include.list": "loopers.product_metrics,loopers.outbox_event",
+    "include.schema.changes": "false",
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": "loopers-cdc\\.loopers\\.(.*)",
+    "transforms.route.replacement": "cdc-connect-$1"
+  }
+}
